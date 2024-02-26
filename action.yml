@@ -69,17 +69,6 @@ runs:
       run: |
         echo "PR Branch: ${{ steps.get-pr-branch.outputs.prBranch }}"
 
-    - name: Compare PR Branch with Current Branch
-      if: env.CAN_SKIP_CHECKS != 'false'
-      shell: bash
-      run: |
-        if git diff --quiet origin/${{ steps.get-pr-branch.outputs.prBranch }}; then
-          echo "No differences found. PR branch is identical with this merge queue branch."
-        else
-          echo "Differences detected. PR branch has been updated after PR was added to merge queue. Setting CAN_SKIP_CHECKS to false."
-          echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
-        fi
-
     - name: Check if PR branch contains the Merge Queue target commit ID
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
@@ -93,6 +82,17 @@ runs:
           echo "Branch '$branch_name' contains commit '$commit_id'. It is up to date with main."
         else
           echo "Branch '$branch_name' does not contain commit '$commit_id'. It is outdated. Setting CAN_SKIP_CHECKS to false."
+          echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
+        fi
+
+    - name: Compare PR Branch with Current Branch
+      if: env.CAN_SKIP_CHECKS != 'false'
+      shell: bash
+      run: |
+        if git diff --quiet origin/${{ steps.get-pr-branch.outputs.prBranch }}; then
+          echo "No differences found. PR branch is identical with this merge queue branch."
+        else
+          echo "Differences detected. PR branch has been updated after PR was added to merge queue. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
         fi
 
