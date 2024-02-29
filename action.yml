@@ -38,6 +38,7 @@ runs:
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
       run: |
+        echo "Target Branch Name: ${{ steps.extract-pr-info.outputs.targetBranchName }}"
         echo "PR Number: ${{ steps.extract-pr-info.outputs.prNumber }}"
         echo "Target Commit ID: ${{ steps.extract-pr-info.outputs.commitId }}"
 
