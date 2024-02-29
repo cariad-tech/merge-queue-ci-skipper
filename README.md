@@ -28,12 +28,12 @@ First, add the following step in the beginning of your job:
 
 To get a stable build, please replace the version (`main`) with the latest released version.
 
-Note the required `secret`: `GH_ACCESS_TOKEN` is a token that has `administration:read` permissions.
-This token is currently required to find the list of required branch checks and confirm that they already passed.
-Most likely this input can be made optional in the future, as long as the repository has _Require status checks to pass before merging_
-enabled. If this setting is enabled, GitHub will not enqueue the PR into the Merge Queue until all checks have passed. See #3 for progress.
+Note the `secret` input: `GH_ACCESS_TOKEN` is a token that has `administration:read` permissions.
+This token is used to find the list of required branch checks and confirm that they already passed.
+This input is optional and may be omitted as long as the repository has _Require status checks to pass before merging_
+enabled. If this setting is enabled, GitHub will not enqueue the PR into the Merge Queue until all checks have passed.
 
-This GitHub action seems to require `read` permissions for `pull-requests` and `contents`.
+This GitHub Action seems to require `read` permissions for `pull-requests` and `contents`.
 
 Next, add the following conditional to _every_ workflow step that should be _skipped_ if the conditions outlined in the scenario
 described above are true:

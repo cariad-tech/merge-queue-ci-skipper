@@ -2,8 +2,8 @@ name: 'Merge Queue CI Check Skipper'
 description: 'Outputs `skip-check` as `true` if this is running as part of merge queue checks and the same checks have already been executed in the PR itself.'
 inputs:
   secret:
-    description: 'GitHub Secret that can access branch protection rules using the administration:read permission'
-    required: true
+    description: 'Optional GitHub Secret that can access branch protection rules using the administration:read permission'
+    required: false
 outputs:
   skip-check:
     description: "Skip Check (boolean)"
@@ -98,7 +98,21 @@ runs:
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
         fi
 
+    - name: Finalize result without verifying that required checks have passed (only if no secret is configured)
+      if: inputs.secret == ''
+      uses: actions/github-script@v7
+      with:
+        script: |
+          if (process.env.CAN_SKIP_CHECKS == "false") {
+            console.log("Setting CAN_SKIP_CHECKS to false");
+            core.setOutput("can-skip-checks", false);
+          } else {
+            console.log("secret input not set, assuming all checks have passed. Please make sure the setting 'Require status checks to pass before merging' is enabled in your repository. Alternatively, please configure the secret.");
+            core.setOutput("can-skip-checks", true);
+          }
+
     - name: Check if PR branch already passed required checks
+      if: inputs.secret != ''
       id: passed-checks
       uses: actions/github-script@v7
       with:
