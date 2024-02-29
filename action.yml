@@ -22,10 +22,11 @@ runs:
       with:
         script: |
           const githubRef = process.env.GITHUB_REF;
-          const regex = /^refs\/heads\/gh-readonly-queue\/main\/pr-(\d+)-([a-f0-9]+)$/;
+          const regex = /^refs\/heads\/gh-readonly-queue\/([a-zA-Z0-9.-_\/]+)\/pr-(\d+)-([a-f0-9]+)$/;
 
           if (regex.test(githubRef)) {
-            const [, prNumber, commitId] = githubRef.match(regex);
+            const [, targetBranchName, prNumber, commitId] = githubRef.match(regex);
+            core.setOutput('targetBranchName', targetBranchName);
             core.setOutput('prNumber', prNumber);
             core.setOutput('commitId', commitId);
           } else {
@@ -40,16 +41,16 @@ runs:
         echo "PR Number: ${{ steps.extract-pr-info.outputs.prNumber }}"
         echo "Target Commit ID: ${{ steps.extract-pr-info.outputs.commitId }}"
 
-    - name: Check if merge queue entry is targeting main
+    - name: Check if merge queue entry was enqueued as head of the queue
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
       run: |
-        mainCommitId=$(git rev-parse origin/main)
-        if [[ "$mainCommitId" != "${{ steps.extract-pr-info.outputs.commitId }}" ]]; then
-          echo "Main branch commit ID does not match PR commit ID. This Merge Queue run is targeting non-main branch or was not head of the queue. Setting CAN_SKIP_CHECKS to false."
+        targetBranchHead=$(git rev-parse origin/${{ steps.extract-pr-info.outputs.targetBranchName }})
+        if [[ "$targetBranchHead" != "${{ steps.extract-pr-info.outputs.commitId }}" ]]; then
+          echo "'${{ steps.extract-pr-info.outputs.targetBranchName }}' branch commit ID does not match PR commit ID. This Merge Queue run was not head of the queue when it was enqueued. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
         else
-          echo "This merge queue entry is targeting the main branch directly."
+          echo "This merge queue entry is targeting '${{ steps.extract-pr-info.outputs.targetBranchName }}' directly."
         fi
 
     - name: Get PR Branch
@@ -79,7 +80,7 @@ runs:
 
         # Check if the branch history contains the commit
         if git branch -r --contains "$commit_id" | grep -q "$branch_name"; then
-          echo "Branch '$branch_name' contains commit '$commit_id'. It is up to date with main."
+          echo "Branch '$branch_name' contains commit '$commit_id'. It is up to date with ${{ steps.extract-pr-info.outputs.targetBranchName }}."
         else
           echo "Branch '$branch_name' does not contain commit '$commit_id'. It is outdated. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
@@ -111,7 +112,7 @@ runs:
           const { data: branchProtection } = await github.rest.repos.getBranchProtection({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            branch: "main",
+            branch: "${{ steps.extract-pr-info.outputs.targetBranchName }}",
           });
           const requiredCheckNames = branchProtection.required_status_checks.contexts;
           console.log(`requiredCheckNames = ${requiredCheckNames}`);
