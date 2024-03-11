@@ -91,7 +91,7 @@ runs:
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
       run: |
-        if git diff --quiet origin/${{ steps.get-pr-branch.outputs.prBranch }}; then
+        if git diff --quiet "origin/${{ steps.get-pr-branch.outputs.prBranch }}"; then
           echo "No differences found. PR branch is identical with this merge queue branch."
         else
           echo "Differences detected. PR branch has been updated after PR was added to merge queue. Setting CAN_SKIP_CHECKS to false."
