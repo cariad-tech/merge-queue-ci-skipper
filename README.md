@@ -43,3 +43,10 @@ described above are true:
   if: ${{ steps.merge-queue-ci-skipper.outputs.skip-check != 'true' }}
   run: ./gradlew assemble
 ```
+
+## Legal Disclaimer
+
+_This Software / Contribution is unfinished, untested and is in particular not in a state to be
+used in any productive or series context. It is provided as a starting point for further
+development and any use requires extensive checks, improvements and testing, for which
+exclusively the user integrating this OSS shall be responsible._
