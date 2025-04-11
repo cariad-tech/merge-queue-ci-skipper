@@ -21,7 +21,7 @@ First, add the following step in the beginning of your job:
 
 ```yml
 - id: merge-queue-ci-skipper
-  uses: vwdfive/merge-queue-ci-skipper@main
+  uses: cariad-tech/merge-queue-ci-skipper@main
   with:
       secret: ${{ secrets.GH_ACCESS_TOKEN }}
 ```
