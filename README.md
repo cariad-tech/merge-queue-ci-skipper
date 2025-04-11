@@ -17,6 +17,8 @@ The `merge-queue-ci-skipper` GitHub Action lets you avoid this issue.
 
 ## Integration
 
+### From this repository
+
 First, add the following step in the beginning of your job:
 
 ```yml
@@ -27,6 +29,22 @@ First, add the following step in the beginning of your job:
 ```
 
 To get a stable build, please replace the version (`main`) with the latest released version.
+
+### From your own repository
+
+Alternatively, you may copy the `action.yml` into the following path in your repository: `.github/merge-queue-ci-skipper/action.yml`
+
+After that, configure the step like so:
+
+```yml
+- id: merge-queue-ci-skipper
+  uses: uses: ./.github/merge-queue-ci-skipper
+  with:
+      secret: ${{ secrets.GH_ACCESS_TOKEN }}
+```
+
+
+### Configuration
 
 Note the `secret` input: `GH_ACCESS_TOKEN` is a token that has `administration:read` permissions.
 It needs to be issued by a user that has admin permissions for the repository.
