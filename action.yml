@@ -126,7 +126,7 @@ runs:
       env:
         SECRET: ${{ inputs.secret }}
       with:
-        github-token: ${{ inputs.secret }}
+        github-token: ${{ inputs.secret != '' && inputs.secret || github.token }}
         script: |
           if (process.env.CAN_SKIP_CHECKS == "false") {
             console.log("Setting CAN_SKIP_CHECKS to false");
