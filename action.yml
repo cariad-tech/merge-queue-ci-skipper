@@ -123,6 +123,8 @@ runs:
     - name: Compute/publish skip result
       id: passed-checks
       uses: actions/github-script@v7
+      env:
+        SECRET: ${{ inputs.secret }}
       with:
         github-token: ${{ inputs.secret }}
         script: |
@@ -132,7 +134,7 @@ runs:
             return;
           }
 
-          const secretProvided = '${{ inputs.secret }}' !== '';
+          const secretProvided = !!process.env.SECRET;
           if (!secretProvided) {
             console.log("secret input not set, assuming all checks have passed. Ensure 'Require status checks to pass before merging' is enabled, or provide a secret with administration:read.");
             core.setOutput("can-skip-checks", true);
