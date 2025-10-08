@@ -44,7 +44,7 @@ runs:
       with:
         script: |
           const githubRef = process.env.GITHUB_REF;
-          const regex = /^refs\/heads\/gh-readonly-queue\/([a-zA-Z0-9.-_\/]+)\/pr-(\d+)-([a-f0-9]+)$/;
+          const regex = /^refs\/heads\/gh-readonly-queue\/([a-zA-Z0-9.\-_\/]+)\/pr-(\d+)-([a-f0-9]+)$/;
 
           if (regex.test(githubRef)) {
             const [, targetBranchName, prNumber, commitId] = githubRef.match(regex);
