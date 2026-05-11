@@ -34,13 +34,13 @@ runs:
   using: "composite"
   steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
     - name: Extract PR Number and Commit ID
       id: extract-pr-info
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           const githubRef = process.env.GITHUB_REF;
@@ -122,7 +122,7 @@ runs:
 
     - name: Compute/publish skip result
       id: passed-checks
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       env:
         SECRET: ${{ inputs.secret }}
       with:
