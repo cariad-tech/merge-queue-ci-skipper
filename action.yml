@@ -33,11 +33,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
     - name: Extract PR Number and Commit ID
       id: extract-pr-info
       uses: actions/github-script@v9
@@ -55,6 +50,16 @@ runs:
             console.log(`GITHUB_REF is not a merge queue ref, setting CAN_SKIP_CHECKS to false: ${githubRef}`);
             core.exportVariable('CAN_SKIP_CHECKS', 'false');
           }
+
+    # The steps below read tree hashes of the full history. These are part of the
+    # commit objects, so the history needs no file content. The working tree is
+    # only materialised for the last commit.
+    - name: Checkout code
+      if: env.CAN_SKIP_CHECKS != 'false'
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        filter: 'blob:none'
 
     - name: Print PR Number and Target Commit ID
       if: env.CAN_SKIP_CHECKS != 'false'
@@ -87,22 +92,29 @@ runs:
         branchName=$(gh pr view ${prNumber} --json headRefName -q '.headRefName')
         echo "prBranch=$branchName" >> "$GITHUB_OUTPUT"
 
+    # The branch name is passed through the environment rather than interpolated
+    # into the script, here and below: its author picks it, it may contain
+    # quotes, '$(' or ';', and substitution happens before bash parses anything.
     - name: Print PR Branch
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       run: |
-        echo "PR Branch: ${{ steps.get-pr-branch.outputs.prBranch }}"
+        echo "PR Branch: ${PR_BRANCH}"
 
     - name: Check if PR branch contains the Merge Queue target commit ID
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       run: |
         # Get the branch name from previous steps
-        branch_name="origin/${{ steps.get-pr-branch.outputs.prBranch }}"
+        branch_name="origin/${PR_BRANCH}"
         commit_id="${{ steps.extract-pr-info.outputs.commitId }}"
 
         # Check if the branch history contains the commit
-        if git branch -r --contains "$commit_id" | grep -q "$branch_name"; then
+        if git merge-base --is-ancestor "$commit_id" "$branch_name"; then
           echo "Branch '$branch_name' contains commit '$commit_id'. It is up to date with ${{ steps.extract-pr-info.outputs.targetBranchName }}."
         else
           echo "Branch '$branch_name' does not contain commit '$commit_id'. It is outdated. Setting CAN_SKIP_CHECKS to false."
@@ -112,9 +124,17 @@ runs:
     - name: Compare PR Branch with Current Branch
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       run: |
-        if git diff --quiet "origin/${{ steps.get-pr-branch.outputs.prBranch }}"; then
-          echo "No differences found. PR branch is identical with this merge queue branch."
+        # Two commits with the same tree hash have identical content in every
+        # tracked file, and comparing the hashes needs no file content
+        # (filter: 'blob:none'). Commit structure might have changed (e.g.
+        # reworded, squashed commits).
+        headTree=$(git rev-parse "HEAD^{tree}")
+        prBranchTree=$(git rev-parse "origin/${PR_BRANCH}^{tree}")
+        if [[ "$headTree" == "$prBranchTree" ]]; then
+          echo "No differences found. PR branch content is identical with this merge queue branch."
         else
           echo "Differences detected. PR branch has been updated after PR was added to merge queue. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
@@ -125,8 +145,11 @@ runs:
       uses: actions/github-script@v9
       env:
         SECRET: ${{ inputs.secret }}
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       with:
         github-token: ${{ inputs.secret != '' && inputs.secret || github.token }}
+        # 400, 401, 403, 404 and 422 are not retried.
+        retries: 3
         script: |
           if (process.env.CAN_SKIP_CHECKS == "false") {
             console.log("Setting CAN_SKIP_CHECKS to false");
@@ -152,7 +175,7 @@ runs:
           const { data: checks } = await github.rest.checks.listForRef({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            ref: "refs/heads/${{ steps.get-pr-branch.outputs.prBranch }}",
+            ref: `refs/heads/${process.env.PR_BRANCH}`,
           });
 
           console.log(`checks.check_runs = ${checks.check_runs.map(check => `${check.status},${check.conclusion},${check.name};`)}`);
