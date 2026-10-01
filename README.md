@@ -46,13 +46,23 @@ After that, configure the step like so:
 
 ### Configuration
 
-Note the `secret` input: `GH_ACCESS_TOKEN` is a token that has `administration:read` permissions.
-It needs to be issued by a user that has admin permissions for the repository.
-This token is used to find the list of required branch checks and confirm that they already passed.
-This input is optional and may be omitted as long as the repository has _Require status checks to pass before merging_
-enabled. If this setting is enabled, GitHub will not enqueue the PR into the Merge Queue until all checks have passed.
+The checks required by the target branch are looked up, and every one of them has to be present and successful on the
+head of the pull request before its merge queue checks are skipped.
 
-This GitHub Action seems to require `read` permissions for `pull-requests` and `contents`.
+A branch can require checks through either of two separate features, and both are consulted:
+
+- **Rulesets.** Read with the workflow `GITHUB_TOKEN`, needing no configuration and no extra permissions. Repository,
+  organisation and enterprise rulesets are all covered, because the endpoint used reports the rules that apply to the
+  branch with their conditions already evaluated.
+- **Classic branch protection.** Reading this needs `administration:read` permission, which cannot be granted to
+  `GITHUB_TOKEN`, so it is only consulted when a PAT or app token is passed as the optional `secret` input.
+  `GH_ACCESS_TOKEN` is such a token, and has to be issued by a user with admin permissions for the repository. Omit the
+  input if the branch is protected only by a ruleset.
+
+If neither of them requires a check (which is also what an unset `secret` looks like for a branch protected classically),
+a warning is logged and every check run on the head of the pull request has to have passed or been skipped instead.
+
+This GitHub Action requires `read` permissions for `pull-requests`, `contents` and `checks`.
 
 Next, add the following conditional to _every_ workflow step that should be _skipped_ if the conditions outlined in the scenario
 described above are true:

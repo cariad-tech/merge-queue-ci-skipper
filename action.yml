@@ -24,7 +24,7 @@ name: 'Merge Queue CI Check Skipper'
 description: 'Outputs `skip-check` as `true` if this is running as part of merge queue checks and the same checks have already been executed in the PR itself.'
 inputs:
   secret:
-    description: 'Optional GitHub Secret that can access branch protection rules using the administration:read permission'
+    description: 'Optional GitHub Secret that can read classic branch protection using the administration:read permission. Only needed for a branch protected by classic branch protection: the required checks of a ruleset are read with the workflow token.'
     required: false
 outputs:
   skip-check:
@@ -134,38 +134,83 @@ runs:
             return;
           }
 
-          const secretProvided = !!process.env.SECRET;
-          if (!secretProvided) {
-            console.log("secret input not set, assuming all checks have passed. Ensure 'Require status checks to pass before merging' is enabled, or provide a secret with administration:read.");
-            core.setOutput("can-skip-checks", true);
-            return;
+          const owner = context.repo.owner;
+          const repo = context.repo.repo;
+          const branch = "${{ steps.extract-pr-info.outputs.targetBranchName }}";
+          const requiredCheckNames = new Set();
+
+          // Reports the rules that reach the branch, from repository, organisation
+          // and enterprise rulesets alike, with their conditions already
+          // evaluated. The workflow token reads it without any permission.
+          const rules = await github.paginate(github.rest.repos.getBranchRules, {
+            owner,
+            repo,
+            branch,
+            per_page: 100,
+          });
+          for (const rule of rules.filter(rule => rule.type === "required_status_checks")) {
+            for (const check of rule.parameters.required_status_checks) {
+              requiredCheckNames.add(check.context);
+            }
           }
 
-          const { data: branchProtection } = await github.rest.repos.getBranchProtection({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            branch: "${{ steps.extract-pr-info.outputs.targetBranchName }}",
-          });
-          const requiredCheckNames = branchProtection.required_status_checks.contexts;
-          console.log(`requiredCheckNames = ${requiredCheckNames}`);
+          // Classic branch protection can require checks of its own. Reading it
+          // needs administration:read permission, which cannot be granted to
+          // GITHUB_TOKEN. Instead, a PAT or app token must be passed as the
+          // 'secret' input. For branches without classic branch protection, 404
+          // is returned.
+          if (process.env.SECRET) {
+            try {
+              const { data: protection } = await github.rest.repos.getBranchProtection({ owner, repo, branch });
+              for (const checkContext of protection.required_status_checks?.contexts ?? []) {
+                requiredCheckNames.add(checkContext);
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              console.log(`${branch} has no classic branch protection.`);
+            }
+          }
 
-          const { data: checks } = await github.rest.checks.listForRef({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            ref: "refs/heads/${{ steps.get-pr-branch.outputs.prBranch }}",
-          });
+          const ref = "refs/heads/${{ steps.get-pr-branch.outputs.prBranch }}";
+          let checkRuns;
+          try {
+            checkRuns = await github.paginate(github.rest.checks.listForRef, {
+              owner,
+              repo,
+              ref,
+              per_page: 100,
+            });
+          } catch (error) {
+            throw error.status === 403
+              ? new Error(`Cannot read the check runs of ${ref}: ${error.message}. This job needs the checks: read permission.`)
+              : error;
+          }
+          console.log(`check runs on ${ref} = ${checkRuns.map(check => `${check.status},${check.conclusion},${check.name};`)}`);
 
-          console.log(`checks.check_runs = ${checks.check_runs.map(check => `${check.status},${check.conclusion},${check.name};`)}`);
-          const nonSuccessfulChecks = checks.check_runs.filter(check => check.status !== "completed" || check.conclusion !== "success");
-          const nonSuccessfulCheckNames = nonSuccessfulChecks.map(check => check.name);
-          console.log(`nonSuccessfulCheckNames = ${nonSuccessfulCheckNames}`);
+          let unsuccessfulChecks;
+          if (requiredCheckNames.size > 0) {
+            console.log(`requiredCheckNames = ${[...requiredCheckNames]}`);
+            // A required name with no run at all is considered unsuccessful.
+            unsuccessfulChecks = [...requiredCheckNames].filter(checkName => {
+              const runs = checkRuns.filter(check => check.name === checkName);
+              return runs.length === 0 || !runs.every(check => check.status === "completed" && check.conclusion === "success");
+            });
+          } else { // No required checks known
+            const cause = process.env.SECRET
+              ? `Neither a ruleset nor classic branch protection requires a status check on ${branch}`
+              : `No ruleset requires a status check on ${branch}, and classic branch protection cannot be read without the 'secret' input`;
+            core.warning(`${cause}, so the merge queue checks are only skipped if there is at least one check run on the pull request, and every check run passed or was skipped. Requiring the checks explicitly - in a ruleset, or in classic branch protection with a token passed as 'secret' - verifies their success by name instead.`);
+            unsuccessfulChecks = checkRuns.length > 0
+              ? checkRuns
+                  .filter(check => check.status !== "completed" || !["success", "skipped"].includes(check.conclusion))
+                  .map(check => check.name)
+              : [`no check run on ${ref}`];
+          }
 
-          const missingChecks = requiredCheckNames.filter(checkName => nonSuccessfulCheckNames.includes(checkName));
-
-          if (missingChecks.length > 0) {
-            console.log(`Required checks not passed, cannot skip merge queue checks. Setting CAN_SKIP_CHECKS to false. Missing checks: ${missingChecks.join(', ')}`);
+          if (unsuccessfulChecks.length > 0) {
+            console.log(`Checks not passed, cannot skip merge queue checks. Setting CAN_SKIP_CHECKS to false. Unsuccessful checks: ${unsuccessfulChecks.join(', ')}`);
             core.setOutput("can-skip-checks", false);
           } else {
-            console.log("No missing checks. Setting CAN_SKIP_CHECKS to true.");
+            console.log("All required checks successful. Setting CAN_SKIP_CHECKS to true.");
             core.setOutput("can-skip-checks", true);
           }
