@@ -59,21 +59,28 @@ runs:
     - name: Print PR Number and Target Commit ID
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        TARGET_BRANCH: ${{ steps.extract-pr-info.outputs.targetBranchName }}
+        PR_NUMBER: ${{ steps.extract-pr-info.outputs.prNumber }}
+        COMMIT_ID: ${{ steps.extract-pr-info.outputs.commitId }}
       run: |
-        echo "Target Branch Name: ${{ steps.extract-pr-info.outputs.targetBranchName }}"
-        echo "PR Number: ${{ steps.extract-pr-info.outputs.prNumber }}"
-        echo "Target Commit ID: ${{ steps.extract-pr-info.outputs.commitId }}"
+        echo "Target Branch Name: $TARGET_BRANCH"
+        echo "PR Number: $PR_NUMBER"
+        echo "Target Commit ID: $COMMIT_ID"
 
     - name: Check if merge queue entry was enqueued as head of the queue
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        TARGET_BRANCH: ${{ steps.extract-pr-info.outputs.targetBranchName }}
+        COMMIT_ID: ${{ steps.extract-pr-info.outputs.commitId }}
       run: |
-        targetBranchHead=$(git rev-parse origin/${{ steps.extract-pr-info.outputs.targetBranchName }})
-        if [[ "$targetBranchHead" != "${{ steps.extract-pr-info.outputs.commitId }}" ]]; then
-          echo "'${{ steps.extract-pr-info.outputs.targetBranchName }}' branch commit ID does not match PR commit ID. This Merge Queue run was not head of the queue when it was enqueued. Setting CAN_SKIP_CHECKS to false."
+        targetBranchHead=$(git rev-parse "refs/remotes/origin/$TARGET_BRANCH")
+        if [[ "$targetBranchHead" != "$COMMIT_ID" ]]; then
+          echo "'$TARGET_BRANCH' branch commit ID does not match PR commit ID. This Merge Queue run was not head of the queue when it was enqueued. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
         else
-          echo "This merge queue entry is targeting '${{ steps.extract-pr-info.outputs.targetBranchName }}' directly."
+          echo "This merge queue entry is targeting '$TARGET_BRANCH' directly."
         fi
 
     - name: Get PR Branch
@@ -82,38 +89,42 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ steps.extract-pr-info.outputs.prNumber }}
       run: |
-        prNumber=${{ steps.extract-pr-info.outputs.prNumber }}
-        branchName=$(gh pr view ${prNumber} --json headRefName -q '.headRefName')
+        branchName=$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName')
         echo "prBranch=$branchName" >> "$GITHUB_OUTPUT"
 
     - name: Print PR Branch
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       run: |
-        echo "PR Branch: ${{ steps.get-pr-branch.outputs.prBranch }}"
+        echo "PR Branch: $PR_BRANCH"
 
     - name: Check if PR branch contains the Merge Queue target commit ID
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
+        COMMIT_ID: ${{ steps.extract-pr-info.outputs.commitId }}
+        TARGET_BRANCH: ${{ steps.extract-pr-info.outputs.targetBranchName }}
       run: |
-        # Get the branch name from previous steps
-        branch_name="origin/${{ steps.get-pr-branch.outputs.prBranch }}"
-        commit_id="${{ steps.extract-pr-info.outputs.commitId }}"
-
-        # Check if the branch history contains the commit
-        if git branch -r --contains "$commit_id" | grep -q "$branch_name"; then
-          echo "Branch '$branch_name' contains commit '$commit_id'. It is up to date with ${{ steps.extract-pr-info.outputs.targetBranchName }}."
+        branch_name="refs/remotes/origin/$PR_BRANCH"
+        if git merge-base --is-ancestor "$COMMIT_ID" "$branch_name"; then
+          echo "Branch '$PR_BRANCH' contains commit '$COMMIT_ID'. It is up to date with $TARGET_BRANCH."
         else
-          echo "Branch '$branch_name' does not contain commit '$commit_id'. It is outdated. Setting CAN_SKIP_CHECKS to false."
+          echo "Branch '$PR_BRANCH' does not contain commit '$COMMIT_ID'. It is outdated. Setting CAN_SKIP_CHECKS to false."
           echo "CAN_SKIP_CHECKS=false" >> "$GITHUB_ENV"
         fi
 
     - name: Compare PR Branch with Current Branch
       if: env.CAN_SKIP_CHECKS != 'false'
       shell: bash
+      env:
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       run: |
-        if git diff --quiet "origin/${{ steps.get-pr-branch.outputs.prBranch }}"; then
+        if git diff --quiet "refs/remotes/origin/$PR_BRANCH"; then
           echo "No differences found. PR branch is identical with this merge queue branch."
         else
           echo "Differences detected. PR branch has been updated after PR was added to merge queue. Setting CAN_SKIP_CHECKS to false."
@@ -125,6 +136,8 @@ runs:
       uses: actions/github-script@v9
       env:
         SECRET: ${{ inputs.secret }}
+        TARGET_BRANCH: ${{ steps.extract-pr-info.outputs.targetBranchName }}
+        PR_BRANCH: ${{ steps.get-pr-branch.outputs.prBranch }}
       with:
         github-token: ${{ inputs.secret != '' && inputs.secret || github.token }}
         script: |
@@ -144,7 +157,7 @@ runs:
           const { data: branchProtection } = await github.rest.repos.getBranchProtection({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            branch: "${{ steps.extract-pr-info.outputs.targetBranchName }}",
+            branch: process.env.TARGET_BRANCH,
           });
           const requiredCheckNames = branchProtection.required_status_checks.contexts;
           console.log(`requiredCheckNames = ${requiredCheckNames}`);
@@ -152,7 +165,7 @@ runs:
           const { data: checks } = await github.rest.checks.listForRef({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            ref: "refs/heads/${{ steps.get-pr-branch.outputs.prBranch }}",
+            ref: `refs/heads/${process.env.PR_BRANCH}`,
           });
 
           console.log(`checks.check_runs = ${checks.check_runs.map(check => `${check.status},${check.conclusion},${check.name};`)}`);
